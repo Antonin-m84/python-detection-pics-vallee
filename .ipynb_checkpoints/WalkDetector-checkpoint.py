@@ -57,9 +57,9 @@ valleys_df = pd.DataFrame(valleys, columns=['Time', 'Value'])
 peaks_df['Time_Diff'] = peaks_df['Time'].diff()
 valleys_df['Time_Diff'] = valleys_df['Time'].diff()
 
-# Filtrer les DataFrames pour ne conserver que les lignes où la différence de temps est supérieure à 0.3
-peaks_df = peaks_df[peaks_df['Time_Diff'] > 0.3]
-valleys_df = valleys_df[valleys_df['Time_Diff'] > 0.3]
+# Filtrer les DataFrames pour ne conserver que les valeurs > 0.3
+peaks_df = peaks_df[peaks_df['Value'] > 0.3]
+valleys_df = valleys_df[valleys_df['Value'] > 0.3]
 
 # Ajouter le nombre de pics et vallées trouvés
 peaks_count = len(peaks_df)
