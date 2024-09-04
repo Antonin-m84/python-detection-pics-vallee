@@ -1,93 +1,76 @@
-import numpy as np
 import pandas as pd
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import accuracy_score
+import numpy as np
+import matplotlib.pyplot as plt
 
-# Charger les données du fichier texte en ignorant les 44 premières lignes
-file_path = 'D:/Documents/Mémoire/Data John Doe/John Doe gaitway 3D locomotion_W7.txt'
-data = pd.read_csv(file_path, skiprows=44, delimiter='\t')
+# Chemins des fichiers
+file_path = r'D:\\Documents\\Mémoire\\Data John Doe\\John Doe gaitway 3D locomotion_R10.txt'
+output_file = r'D:\\Documents\\Mémoire\\Data John Doe\\Auto Python\\ResultPython_JD_R10.txt'
 
-# Extraire les colonnes temps, signal et validation
-time = data.iloc[:, 0].values
-signal = data.iloc[:, 19].values
-validation_col = data.iloc[:, 31].values
+# Seuils pour la détection des pics et vallées
+seuil_p = 2.795
+seuil_v = 2.755
 
-# Définir les seuils avant et après la ligne 8500
-thresholds = {
-    "before_8500": {"peak": 1.935, "valley": 1.9235},
-    "after_8500": {"peak": 1.9425, "valley": 1.929}
-}
+# Lire le fichier en ignorant les 43 premières lignes
+data = pd.read_csv(file_path, delimiter='\t', header=None, skiprows=44)
 
-# Définir la taille de la fenêtre pour détecter les motifs (100 ms => 100 points à 1000 Hz)
-window_size = 140
+# Extraire les colonnes nécessaires
+time = data[0]
+raw_speed = data[9]
+speed = data[19]
+contact_mode = data[31]
 
-# Fonction pour extraire des caractéristiques de la fenêtre
-def extract_features(signal, time, validation_col, window_size):
-    features = []
-    labels = []
-    for i in range(len(signal) - window_size):
-        window = signal[i:i + window_size]
-        time_window = time[i:i + window_size]
-        val_window = validation_col[i:i + window_size]
+# Calculer la moyenne mobile pour raw_speed
+moving_average_raw_speed = raw_speed.rolling(window=21, center=True).mean()
 
-        # Déterminer les seuils en fonction de la ligne actuelle
-        if i < 8500:
-            peak_threshold = thresholds["before_8500"]["peak"]
-            valley_threshold = thresholds["before_8500"]["valley"]
-        else:
-            peak_threshold = thresholds["after_8500"]["peak"]
-            valley_threshold = thresholds["after_8500"]["valley"]
+# Initialiser les listes pour stocker les vallées, les pics et les transitions de contact mode
+vallees = []
+pics = []
+averages_vals = []
 
-        # Calculer des caractéristiques simples: maximum, minimum, et l'indice de ces valeurs
-        max_val = np.max(window)
-        min_val = np.min(window)
-        max_index = np.argmax(window)
-        min_index = np.argmin(window)
+# Détecter les vallées et les pics pour raw_speed
+previous_type = None
 
-        # Ajouter les caractéristiques à la liste
-        features.append([max_val, min_val, max_index, min_index])
+for i in range(10, len(moving_average_raw_speed) - 10):
+    if pd.notna(moving_average_raw_speed[i]):  # Vérifier que la valeur n'est pas NaN
+        window = moving_average_raw_speed[i - 10:i + 11]
+        min_value = window.min()
+        max_value = window.max()
 
-        # Définir le label en fonction de la présence du motif pic-vallée dans la fenêtre
-        if (max_val >= peak_threshold and min_val <= valley_threshold
-                and max_index < min_index and min_index - max_index < 100):
-            # Vérifier la transition de validation_col pour confirmer la pente
-            if 'DC' in val_window and 'SC' in val_window:
-                labels.append(1)  # Motif trouvé
-            else:
-                labels.append(0)  # Motif non trouvé
-        else:
-            labels.append(0)  # Motif non trouvé
+        is_vallee = moving_average_raw_speed[i] == min_value and moving_average_raw_speed[i] < seuil_v
+        is_pic = moving_average_raw_speed[i] == max_value and moving_average_raw_speed[i] > seuil_p
 
-    return np.array(features), np.array(labels)
+        averages_vals.append((time[i], moving_average_raw_speed[i], ''))
 
-# Extraire les caractéristiques et les labels des données
-X, y = extract_features(signal, time, validation_col, window_size)
+        # Vérifier les pics
+        if is_pic and previous_type != "pic":
+            pics.append((time[i], moving_average_raw_speed[i], 'Pic'))
+            previous_type = "pic"
 
-# Diviser les données en ensembles d'entraînement et de test
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=42)
+        # Vérifier les vallées
+        elif is_vallee and previous_type != "val":
+            vallees.append((time[i], moving_average_raw_speed[i], 'Vallée'))
+            previous_type = "val"
 
-# Créer et entraîner un modèle de forêt aléatoire
-model = RandomForestClassifier(n_estimators=100, random_state=42)
-model.fit(X_train, y_train)
+print("Dernière détection de vallée:", is_vallee)
+print("Dernière détection de pic:", is_pic)
 
-# Prédire les labels pour l'ensemble de test
-y_pred = model.predict(X_test)
+# Visualisation des données
+plt.figure(figsize=(10, 6))
+pics_df = pd.DataFrame(pics)
+vallees_df = pd.DataFrame(vallees)
+averages_vals_df = pd.DataFrame(averages_vals)
 
-# Calculer et afficher la précision du modèle
-accuracy = accuracy_score(y_test, y_pred)
-print(f"Accuracy: {accuracy * 100:.2f}%")
+plt.plot(averages_vals_df[0], averages_vals_df[1], label='Moyenne mobile de Raw Speed', color='orange')
 
-# Appliquer le modèle à l'ensemble complet des données pour détecter les motifs
-y_full_pred = model.predict(X)
+for i in range(len(vallees_df)):
+    plt.axvline(x=vallees_df[0][i], color='green', label='Vallées' if i == 0 else "")
 
-# Extraire les temps et les valeurs des motifs détectés
-patterns = []
-for i in range(len(y_full_pred)):
-    if y_full_pred[i] == 1:
-        patterns.append((time[i], signal[i]))
+for i in range(len(pics_df)):
+    plt.axvline(x=pics_df[0][i], color='blue', label='Pics' if i == 0 else "")
 
-# Afficher les motifs détectés
-print("Motifs détectés (temps, signal):")
-for pattern in patterns:
-    print(pattern)
+plt.xlabel('Temps')
+plt.ylabel('Raw Speed')
+plt.title('Raw Speed et Moyenne Mobile avec Pics et Vallées')
+plt.legend()
+plt.grid(True)
+plt.show()

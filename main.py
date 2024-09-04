@@ -17,13 +17,12 @@ def read_and_process_file(file_path, seuil_v=4.35, seuil_p=4.55):
     speed = data[19]
     contact_mode = data[31]
 
-    # Initialiser les listes pour stocker les vallées, les pics et les transitions de contact mode
+    # Initialiser les listes pour stocker les vallées, les pics et les lift_down de contact mode
     vallees = []
     pics = []
-    transitions = []
 
-    # Previous value, should be "PIC", or "VAL"
-    was_previous = None
+    lift_down = []
+    lift_off = []
 
     # Calculer la moyenne mobile
     moving_average = speed.rolling(window=21, center=True).mean()
@@ -51,39 +50,54 @@ def read_and_process_file(file_path, seuil_v=4.35, seuil_p=4.55):
                 previous_type = "val"
 
 
-    # Détecter les transitions de contact_mode
+    # Détecter les lift_down de contact_mode
     previous_mode = None
     for i in range(len(contact_mode)):
         if pd.notna(contact_mode[i]):
             current_mode = contact_mode[i]
             if (previous_mode is None or previous_mode != 'SC') and current_mode == 'SC':
-                transitions.append((time[i], 'Transition'))
+                lift_down.append((time[i], 'Pose de Pied'))
             previous_mode = current_mode
 
-    # Créer des DataFrames pour les vallées, les pics et les transitions
+    # Détecter les lift_off de contact_mode
+    previous_mode = None
+    for i in range(len(contact_mode)):
+        if pd.notna(contact_mode[i]):
+            current_mode = contact_mode[i]
+            if (previous_mode is None or previous_mode != 'Aerial') and current_mode == 'Aerial':
+                lift_off.append((time[i], 'levé de Pied'))
+            previous_mode = current_mode
+
+    # Créer des DataFrames pour les vallées, les pics et les lift_down
     df_vallees = pd.DataFrame(vallees, columns=['Temps (ms)', 'Vitesse (m/s)', 'Type'])
     df_pics = pd.DataFrame(pics, columns=['Temps (ms)', 'Vitesse (m/s)', 'Type'])
-    df_transitions = pd.DataFrame(transitions, columns=['Temps (ms)', 'Type'])
+    df_lift_off = pd.DataFrame(lift_off, columns=['Temps (ms)', 'Type'])
+    df_lift_down = pd.DataFrame(lift_down, columns=['Temps (ms)', 'Type'])
 
     # Calculer la différence de temps entre chaque valeur x+1 et x
     df_vallees['Différence de Temps (ms)'] = df_vallees['Temps (ms)'].diff().shift(-1).abs()
     df_pics['Différence de Temps (ms)'] = df_pics['Temps (ms)'].diff().shift(-1).abs()
-    df_transitions['Différence de Temps (ms)'] = df_transitions['Temps (ms)'].diff().shift(-1).abs()
+    df_lift_off['Différence de Temps (ms)'] = df_lift_off['Temps (ms)'].diff().shift(-1).abs()
+    df_lift_down['Différence de Temps (ms)'] = df_lift_down['Temps (ms)'].diff().shift(-1).abs()
+
 
     # Arrondir les valeurs de vitesse et de différence de temps
     df_vallees['Vitesse (m/s)'] = df_vallees['Vitesse (m/s)'].round(5)
     df_pics['Vitesse (m/s)'] = df_pics['Vitesse (m/s)'].round(5)
     df_vallees['Différence de Temps (ms)'] = df_vallees['Différence de Temps (ms)'].round(4)
     df_pics['Différence de Temps (ms)'] = df_pics['Différence de Temps (ms)'].round(4)
-    df_transitions['Différence de Temps (ms)'] = df_transitions['Différence de Temps (ms)'].round(4)
+    df_lift_off['Différence de Temps (ms)'] = df_lift_off['Différence de Temps (ms)'].round(4)
+    df_lift_down['Différence de Temps (ms)'] = df_lift_down['Différence de Temps (ms)'].round(4)
 
     # Ajouter les codes d'erreur pour les différences de temps
     df_vallees['Erreur'] = df_vallees['Différence de Temps (ms)'].apply(lambda x: 'Erreur' if x > 400 else ('Avertissement' if x < 0.250 else ''))
     df_pics['Erreur'] = df_pics['Différence de Temps (ms)'].apply(lambda x: 'Erreur' if x > 400 else ('Avertissement' if x < 0.250 else ''))
-    df_transitions['Erreur'] = df_transitions['Différence de Temps (ms)'].apply(lambda x: 'Erreur' if x > 400 else ('Avertissement' if x < 0.250 else ''))
+    df_lift_off['Erreur'] = df_lift_off['Différence de Temps (ms)'].apply(lambda x: 'Erreur' if x > 400 else ('Avertissement' if x < 0.250 else ''))
+    df_lift_down['Erreur'] = df_lift_down['Différence de Temps (ms)'].apply(lambda x: 'Erreur' if x > 400 else ('Avertissement' if x < 0.250 else ''))
+
 
     # Retourner les résultats
-    return df_vallees, df_pics, df_transitions
+    return df_vallees, df_pics, df_lift_off, df_lift_down
 
 def write_results_to_file(vallees, pics, transitions, output_file):
     with open(output_file, 'w') as f:
@@ -108,38 +122,54 @@ def write_results_to_file(vallees, pics, transitions, output_file):
         else:
             f.write("Aucun pic détecté.\n")
 
-        f.write("\nTransitions de contact_mode détectées:\t")
-        if not transitions.empty:
-            f.write(f"({len(vallees)})\n")
-            transitions.to_csv(f, index=False, sep='\t', lineterminator="\n")
+        f.write("\nPose de pied détectées:\t")
+        if not lift_down.empty:
+            f.write(f"({len(lift_down)})\n")
+            lift_down.to_csv(f, index=False, sep='\t', lineterminator="\n")
             # Vérifier les différences de temps pour les transitions
-            for index, row in transitions.iterrows():
+            for index, row in lift_down.iterrows():
                 if row['Différence de Temps (ms)'] > 400 or row['Différence de Temps (ms)'] < 0.250:
-                    f.write(f"Erreur: Différence de temps {row['Différence de Temps (ms)']} ms à l'index {index} pour les transitions\n")
+                    f.write(f"Erreur: Différence de temps {row['Différence de Temps (ms)']} ms à l'index {index} pour les pose de pied\n")
         else:
-            f.write("Aucune transition détectée.\n")
+            f.write("Aucune pose de pied détectée.\n")
+
+
+        f.write("\nLevé de pied détectées:\t")
+        if not lift_off.empty:
+            f.write(f"({len(lift_off)})\n")
+            lift_off.to_csv(f, index=False, sep='\t', lineterminator="\n")
+            # Vérifier les différences de temps pour les transitions
+            for index, row in lift_off.iterrows():
+                if row['Différence de Temps (ms)'] > 400 or row['Différence de Temps (ms)'] < 0.250:
+                    f.write(f"Erreur: Différence de temps {row['Différence de Temps (ms)']} ms à l'index {index} pour les levé de pied\n")
+        else:
+            f.write("Aucune pose de pied détectée.\n")
+
+
 
 def compare_differences(vallees, pics, transitions):
     if not vallees.empty and not pics.empty and not transitions.empty:
         vallees_diff = vallees['Différence de Temps (ms)'].dropna().values
         pics_diff = pics['Différence de Temps (ms)'].dropna().values
-        transitions_diff = transitions['Différence de Temps (ms)'].dropna().values
+        lift_down_diff = transitions['Différence de Temps (ms)'].dropna().values
+        lift_off_diff = transitions['Différence de Temps (ms)'].dropna().values
 
         # Calculer les coefficients de corrélation
 
-        min_len = min(len(vallees_diff), len(pics_diff), len(transitions_diff))
+        min_len = min(len(vallees_diff), len(pics_diff), len(lift_down_diff), len(lift_off_diff))
 
         vallees_diff = vallees_diff[:min_len]
         pics_diff = pics_diff[:min_len]
-        transitions_diff = transitions_diff[:min_len]
+        lift_down_diff = lift_down_diff[:min_len]
+        lift_off_diff = lift_down_diff[:min_len]
 
-        corr_vallees_trans = np.corrcoef(vallees_diff, transitions_diff)[0, 1]
-        corr_pics_trans = np.corrcoef(pics_diff, transitions_diff)[0, 1]
+        corr_vallees_trans = np.corrcoef(vallees_diff, lift_down_diff)[0, 1]
+        corr_pics_trans = np.corrcoef(pics_diff, lift_down_diff)[0, 1]
 
 
         # Effectuer une régression linéaire
-        slope_vallees, intercept_vallees, r_vallees, p_vallees, std_err_vallees = linregress(vallees_diff, transitions_diff)
-        slope_pics, intercept_pics, r_pics, p_pics, std_err_pics = linregress(pics_diff, transitions_diff)
+        slope_vallees, intercept_vallees, r_vallees, p_vallees, std_err_vallees = linregress(vallees_diff, lift_down_diff)
+        slope_pics, intercept_pics, r_pics, p_pics, std_err_pics = linregress(pics_diff, lift_down_diff)
 
         return {
             "Corrélation Vallées-Transitions": corr_vallees_trans,
@@ -167,10 +197,10 @@ file_path = r'D:\\Documents\\Mémoire\\Data John Doe\\John Doe gaitway 3D locomo
 output_file = r'D:\\Documents\\Mémoire\\Data John Doe\\ResultPython_JD_R16.txt'
 
 print(f"Vérification de l'existence du fichier : {file_path}")
-vallees, pics, transitions = read_and_process_file(file_path)
+vallees, pics, lift_down, lift_off, = read_and_process_file(file_path)
 
-if vallees is not None and pics is not None and transitions is not None:
-    write_results_to_file(vallees, pics, transitions, output_file)
+if vallees is not None and pics is not None and lift_down is not None:
+    write_results_to_file(vallees, pics, lift_down, output_file)
     print(f"Les résultats ont été écrits dans le fichier : {output_file}")
 
-    print(json.dumps(compare_differences(vallees, pics, transitions), indent=4))
+    print(json.dumps(compare_differences(vallees, pics, lift_down), indent=4))

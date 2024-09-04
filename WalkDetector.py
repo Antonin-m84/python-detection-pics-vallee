@@ -73,3 +73,16 @@ with pd.ExcelWriter('detected_patterns_W7.xlsx') as writer:
 print(f'Nombre de pics : {peaks_count}')
 print(f'Nombre de vallées : {valleys_count}')
 print("Detection complète, résultats sauvegardés dans detected_patterns.xlsx")
+
+import matplotlib.pyplot as plt
+plt.figure(figsize=(100, 6))
+
+plt.plot(time, moving_average, color='black', label='Moving Average')
+plt.scatter(valleys_df['Time'], valleys_df['Value'],  color='green', label='vallees')
+plt.scatter(peaks_df['Time'], peaks_df['Value'],  color='blue', label='pics')
+
+plt.xlabel('Time ')
+plt.ylabel('Speed')
+plt.title('Pics et Vallées selon la moyenne mobile')
+plt.grid(True)
+plt.show()
